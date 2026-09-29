@@ -1,13 +1,13 @@
-# shared_actions
+# .sacts
 
 本仓库存放一组**可复用的 GitHub 组合 Action（composite actions）**，供 `abldgsync` 组织下各工具仓库（如 `golang`、`kubectl`、`k3s` 等）通过 `uses:` 引用，把各官方源二进制/安装包同步发布到对应仓库的 Releases。
 
-> 本地目录名 `00_shared_actions/` 对应远端仓库 `abldgsync/shared_actions`；引用时写 `abldgsync/shared_actions/sync_<tool>@main`。
+> 本地目录名 `.sacts/` 对应远端仓库 `abldgsync/.sacts`；引用时写 `abldgsync/.sacts/sync_<tool>@main`。
 
 ## 📁 目录结构
 
 ```
-shared_actions/
+.sacts/
 ├── sync_golang/          # Go 二进制
 │   ├── action.yaml
 │   └── scripts/  (s1_resolve.sh, s2_download.sh, s3_verify.sh)
@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Sync Golang
-        uses: abldgsync/shared_actions/sync_golang@main
+        uses: abldgsync/.sacts/sync_golang@main
         with:
           binvern: ''   # 不填则用最新稳定版,可手动指定版本号
 ```
@@ -80,4 +80,4 @@ jobs:
 1. 在仓库根新建 `sync_<tool>/`；
 2. 提供 `action.yaml`（`using: composite`，`runs.steps` 中引用本仓库脚本）；
 3. 在 `scripts/` 下按 `s1~s3` 拆分逻辑（如需自定义发布再加 `s4_publish.sh`）；
-4. 在各工具仓库工作流中用 `uses: abldgsync/shared_actions/sync_<tool>@main` 引用。
+4. 在各工具仓库工作流中用 `uses: abldgsync/.sacts/sync_<tool>@main` 引用。
