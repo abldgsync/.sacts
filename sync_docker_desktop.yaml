@@ -25,7 +25,7 @@ runs:
         echo "下载完成,文件数: $(find dist -type f | wc -l)"
 
     - name: 发布到 Releases
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@v3.0.3
       with:
         overwrite_files: false
         tag_name: "${{ env.VTAG }}"

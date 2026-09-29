@@ -73,7 +73,7 @@ runs:
         exit ${fail}
 
     - name: 发布到 Releases
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@v3.0.3
       with:
         files: dist/*
         tag_name: "${{ env.VTAG }}"
