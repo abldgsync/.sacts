@@ -8,21 +8,21 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: 解析版本并生成下载清单
+    - name: S1 解析版本并生成下载清单
       shell: bash
       env:
         WANT: ${{ inputs.binvern }}
         API: https://api.github.com/repos/helm/helm/releases
         GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/scripts/s1_resolve.sh"
+      run: bash "${{ github.action_path }}/scripts/sync.sh" S1
 
-    - name: 并行下载全部二进制包
+    - name: S2 并行下载全部二进制包
       shell: bash
-      run: bash "${{ github.action_path }}/scripts/s2_download.sh"
+      run: bash "${{ github.action_path }}/scripts/sync.sh" S2
 
-    - name: 校验 SHA256
+    - name: S3 校验 SHA256
       shell: bash
-      run: bash "${{ github.action_path }}/scripts/s3_verify.sh"
+      run: bash "${{ github.action_path }}/scripts/sync.sh" S3
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3
