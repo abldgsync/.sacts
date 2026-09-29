@@ -13,68 +13,15 @@ runs:
       env:
         WANT: ${{ inputs.binvern }}
         BASE_URL: https://go.dev/dl/
-      run: |
-        set -euo pipefail
-        want=""
-        if [[ -n "${WANT:-}" ]]; then want="go${WANT#go}"; fi
-        if ! curl -4fsSLo dl.json --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 "${BASE_URL}?mode=json&include=all"; then
-          echo "::error::获取版本清单失败: ${BASE_URL}"
-          exit 1
-        fi
-        if ! jq -e 'type == "array" and length > 0' dl.json >/dev/null 2>&1; then
-          echo "::error::获取的版本清单不是有效的JSON数组"
-          exit 1
-        fi
-        sel='.stable == true'
-        if [[ -n "${want}" ]]; then sel="${sel} and .version == \"${want}\""; fi
-        VN="$(jq -r "map(select(${sel})) | first | .version // empty" dl.json)"
-        if [[ -z "${VN}" ]]; then
-          echo "::error::未找到匹配的稳定版本${want:+: ${want}}"
-          exit 1
-        fi
-        if [[ "${VN}" =~ (rc|beta|alpha) ]]; then
-          echo "::error::解析到预发布版本 ${VN},请显式指定稳定版本号"
-          exit 1
-        fi
-        jq -r --arg vn "${VN}" 'map(select(.version == $vn)) | .[0].files[]? | select(.sha256 != null and .sha256 != "") | "\(.sha256)  \(.filename)"' dl.json > "${RUNNER_TEMP}/manifest.sums"
-        if [[ ! -s "${RUNNER_TEMP}/manifest.sums" ]]; then
-          echo "::error::未找到任何可下载资源"
-          exit 1
-        fi
-        echo "VTAG=v${VN#go}" >> "$GITHUB_ENV"
-        echo "GOVERSION=${VN}" >> "$GITHUB_ENV"
-        echo "BASE=${BASE_URL}" >> "$GITHUB_ENV"
-        echo "解析到版本: ${VN} ($(wc -l < "${RUNNER_TEMP}/manifest.sums") 个资源)"
+      run: bash "${{ github.action_path }}/scripts/s1_resolve.sh"
 
     - name: 并行下载全部二进制包
       shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p dist
-        download_one() {
-          local sum="$1" name="$2"
-          local url="${BASE}${name}"
-          for i in 1 2 3; do
-            if curl -4fL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800 -o "dist/${name}" "${url}"; then
-              return 0
-            fi
-            sleep $((i * 3))
-          done
-          echo "::error::下载失败: ${url}"
-          return 1
-        }
-        export -f download_one
-        xargs -P 8 -n 2 bash -c 'download_one "$@"' _ < "${RUNNER_TEMP}/manifest.sums"
-        echo "下载完成,文件数: $(find dist -type f | wc -l)"
+      run: bash "${{ github.action_path }}/scripts/s2_download.sh"
 
     - name: 校验 SHA256
       shell: bash
-      run: |
-        set -euo pipefail
-        cd dist
-        if sha256sum -c "${RUNNER_TEMP}/manifest.sums"; then
-          echo "共 $(wc -l < "${RUNNER_TEMP}/manifest.sums") 个文件,SHA256 校验通过"
-        fi
+      run: bash "${{ github.action_path }}/scripts/s3_verify.sh"
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3

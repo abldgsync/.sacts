@@ -19,12 +19,22 @@ runs:
         WITHAIRGAP: ${{ inputs.withairgap }}
         API: https://api.github.com/repos/k3s-io/k3s/releases
         GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/scripts/resolve-versions.sh"
+      run: bash "${{ github.action_path }}/scripts/s1_resolve.sh"
 
-    - name: 循环下载/校验/发布各版本
+    - name: 下载各版本二进制
       shell: bash
       env:
         WITHAIRGAP: ${{ inputs.withairgap }}
         API: https://api.github.com/repos/k3s-io/k3s/releases
         GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/scripts/sync-versions.sh"
+      run: bash "${{ github.action_path }}/scripts/s2_download.sh"
+
+    - name: 校验各版本 SHA256
+      shell: bash
+      run: bash "${{ github.action_path }}/scripts/s3_verify.sh"
+
+    - name: 发布到 Releases
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: bash "${{ github.action_path }}/scripts/s4_publish.sh"

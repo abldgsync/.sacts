@@ -13,80 +13,15 @@ runs:
       env:
         WANT: ${{ inputs.binvern }}
         INDEX_URL: https://ziglang.org/download/index.json
-      run: |
-        set -euo pipefail
-        if ! curl -4fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 -o "${RUNNER_TEMP}/index.json" "${INDEX_URL}"; then
-          echo "::error::获取版本清单失败: ${INDEX_URL}"
-          exit 1
-        fi
-        if ! jq -e 'type == "object"' "${RUNNER_TEMP}/index.json" >/dev/null 2>&1; then
-          echo "::error::获取的版本清单不是有效的JSON对象"
-          exit 1
-        fi
-        want="${WANT:-}"
-        if [[ -n "${want}" ]]; then
-          if ! jq -e --arg v "${want}" 'has($v)' "${RUNNER_TEMP}/index.json" >/dev/null 2>&1; then
-            echo "::error::未找到指定版本: ${want}"
-            exit 1
-          fi
-          VN="${want}"
-        else
-          VN=$(jq -r 'keys[]' "${RUNNER_TEMP}/index.json" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vr | head -n 1)
-          if [[ -z "${VN}" ]]; then
-            echo "::error::无法解析最新稳定版本"
-            exit 1
-          fi
-        fi
-        if [[ "${VN}" =~ (-dev|rc|beta|alpha) ]]; then
-          echo "::error::解析到预发布版本 ${VN},请显式指定稳定版本号"
-          exit 1
-        fi
-        jq -r --arg vn "${VN}" '.[$vn] | to_entries[] | .value | select(type == "object" and (.tarball != null) and (.shasum != null)) | "\(.shasum)  \(.tarball | sub(".*/"; ""))"' "${RUNNER_TEMP}/index.json" > "${RUNNER_TEMP}/manifest.sums"
-        if [[ ! -s "${RUNNER_TEMP}/manifest.sums" ]]; then
-          echo "::error::未找到任何可下载资源"
-          exit 1
-        fi
-        echo "VTAG=v${VN}" >> "$GITHUB_ENV"
-        echo "ZIGVERSION=${VN}" >> "$GITHUB_ENV"
-        echo "BASE=https://ziglang.org/download/${VN}" >> "$GITHUB_ENV"
-        echo "解析到版本: ${VN} ($(wc -l < "${RUNNER_TEMP}/manifest.sums") 个资源)"
+      run: bash "${{ github.action_path }}/scripts/s1_resolve.sh"
 
     - name: 并行下载全部二进制包
       shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p dist
-        download_one() {
-          local sum="$1" name="$2"
-          local url="${BASE}/${name}"
-          for i in 1 2 3; do
-            if curl -4fL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800 -o "dist/${name}" "${url}"; then
-              return 0
-            fi
-            sleep $((i * 3))
-          done
-          echo "::error::下载失败: ${url}"
-          return 1
-        }
-        export -f download_one
-        xargs -P 8 -n 2 bash -c 'download_one "$@"' _ < "${RUNNER_TEMP}/manifest.sums"
-        echo "下载完成,文件数: $(find dist -type f | wc -l)"
+      run: bash "${{ github.action_path }}/scripts/s2_download.sh"
 
     - name: 校验 SHA256
       shell: bash
-      run: |
-        set -euo pipefail
-        cd dist
-        sha256sum -c "${RUNNER_TEMP}/manifest.sums"
-        {
-          echo "### Zig ${{ env.ZIGVERSION }}"
-          echo ""
-          echo "共 $(wc -l < "${RUNNER_TEMP}/manifest.sums") 个文件,SHA256 校验通过:"
-          echo ""
-          echo '```'
-          awk '{print $2}' "${RUNNER_TEMP}/manifest.sums"
-          echo '```'
-        } >> "${GITHUB_STEP_SUMMARY"
+      run: bash "${{ github.action_path }}/scripts/s3_verify.sh"
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3
