@@ -81,7 +81,7 @@ runs:
           echo '```'
           awk '{print $2}' "${RUNNER_TEMP}/manifest.sums"
           echo '```'
-        } >> "${GITHUB_STEP_SUMMARY"
+        } >> "${GITHUB_STEP_SUMMARY}"
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3
