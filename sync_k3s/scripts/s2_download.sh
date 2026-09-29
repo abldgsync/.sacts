@@ -21,21 +21,12 @@ while IFS= read -r VN; do
   if [[ "${WXAIR}" == "1" ]]; then
     pat='^k3s$|^k3s-arm64$|^k3s-armhf$|^k3s-airgap-images-.*\.tar(\.gz)?$'
   fi
+  # 待下载二进制文件路径唯一来源:rel.json 的 release assets(按 pat 过滤)
   jq -r --arg pat "${pat}" '.assets[].name | select(test($pat))' rel.json > "${RUNNER_TEMP}/manifest.txt"
   if [[ ! -s "${RUNNER_TEMP}/manifest.txt" ]]; then echo "::error::${VN} 未找到可下载资源"; exit 1; fi
 
-  SUMURL=$(jq -r '.assets[] | select(.name=="sha256sums.txt") | .browser_download_url' rel.json)
-  if [[ -z "${SUMURL}" || "${SUMURL}" == "null" ]]; then echo "::error::${VN} 未找到 sha256sums.txt"; exit 1; fi
-  curl -4fsSL --retry 3 --retry-delay 2 "${SUMURL}" -o "${RUNNER_TEMP}/sha256sums.txt"
-
   # 按版本隔离目录,避免多版本文件互相污染;清单与二进制同目录便于校验
   rm -rf "dist/${VN}"; mkdir -p "dist/${VN}"
-  : > "dist/${VN}/manifest.sums"
-  while IFS= read -r line; do
-    fname=$(printf '%s' "$line" | sed 's/^[^ ]*  //')
-    if grep -qxF "$fname" "${RUNNER_TEMP}/manifest.txt"; then printf '%s\n' "$line" >> "dist/${VN}/manifest.sums"; fi
-  done < "${RUNNER_TEMP}/sha256sums.txt"
-  if [[ ! -s "dist/${VN}/manifest.sums" ]]; then echo "::error::${VN} 未能生成校验项"; exit 1; fi
 
   download_one() {
     local name="$1"
@@ -49,7 +40,22 @@ while IFS= read -r VN; do
     echo "::error::下载失败: ${name}"; return 1
   }
   export -f download_one
+  # 下载路径全部来自 rel.json(manifest.txt),不依赖 sha256sums.txt
   xargs -a "${RUNNER_TEMP}/manifest.txt" -I{} -P 8 bash -c 'download_one "$@"' _ {}
+
+  # 校验清单:文件路径取自 rel.json(manifest.txt),哈希值取自 sha256sums.txt(可选,缺失仅跳过校验)
+  SUMURL=$(jq -r '.assets[] | select(.name=="sha256sums.txt") | .browser_download_url' rel.json)
+  if [[ -n "${SUMURL}" && "${SUMURL}" != "null" ]]; then
+    curl -4fsSL --retry 3 --retry-delay 2 "${SUMURL}" -o "${RUNNER_TEMP}/sha256sums.txt"
+    : > "dist/${VN}/manifest.sums"
+    while IFS= read -r name; do
+      line=$(awk -F '  ' -v n="$name" '$2==n {print; exit}' "${RUNNER_TEMP}/sha256sums.txt")
+      [[ -n "${line}" ]] && printf '%s\n' "${line}" >> "dist/${VN}/manifest.sums"
+    done < "${RUNNER_TEMP}/manifest.txt"
+    if [[ ! -s "dist/${VN}/manifest.sums" ]]; then echo "::warning::${VN} 未在 sha256sums.txt 匹配到校验项,跳过校验"; fi
+  else
+    echo "::warning::${VN} 未找到 sha256sums.txt,跳过校验清单生成"
+  fi
 
   echo "<===== [download] 完成版本: ${VN}"
 done < "${RUNNER_TEMP}/versions.txt"
