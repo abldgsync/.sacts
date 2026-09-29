@@ -1,0 +1,30 @@
+name: Sync K3s Binaries
+description: 从 k3s-io/k3s GitHub Releases 下载并发布 K3s 二进制到调用方仓库
+inputs:
+  binvern:
+    description: '指定 K3s 版本号(如 v1.31.0+k3s1 或系列 v1.31,不填则默认同步最新的四个稳定系列)'
+    required: false
+    default: ''
+  withairgap:
+    description: '包含离线镜像包 airgap images(0|1),默认 1'
+    required: false
+    default: '1'
+runs:
+  using: composite
+  steps:
+    - name: 解析版本列表
+      shell: bash
+      env:
+        WANT: ${{ inputs.binvern }}
+        WITHAIRGAP: ${{ inputs.withairgap }}
+        API: https://api.github.com/repos/k3s-io/k3s/releases
+        GH_TOKEN: ${{ github.token }}
+      run: bash "${{ github.action_path }}/scripts/resolve-versions.sh"
+
+    - name: 循环下载/校验/发布各版本
+      shell: bash
+      env:
+        WITHAIRGAP: ${{ inputs.withairgap }}
+        API: https://api.github.com/repos/k3s-io/k3s/releases
+        GH_TOKEN: ${{ github.token }}
+      run: bash "${{ github.action_path }}/scripts/sync-versions.sh"
