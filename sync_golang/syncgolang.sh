@@ -2,14 +2,18 @@
 # Golang 同步一体化脚本:按步骤参数(S1/S2/S3/S4)调用对应函数
 # 调用方式: bash sync.sh S1 | S2 | S3 | S4
 # 入参(环境变量): WANT / BASE_URL(S1 会把 VTAG/GOVERSION/BASE 写回 GITHUB_ENV)
-# set -euo pipefail
+set -euo pipefail
+
+# 全局下载选项:使用字符串(非数组)并导出,确保 xargs 派生的子 shell 中 download_one 也能继承
+CURL_OPTS="-4fL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
+export CURL_OPTS
 
 main() {
   # ---------- S1: 解析版本并生成下载/校验清单 ----------
   step1() {
     local want="" dlfile='dl.json'
     if [[ -n "${WANT:-}" ]]; then want="go${WANT#go}"; fi
-    if ! curl ${cdlopts[@]} -sSo "$dlfile" "${BASE_URL}?mode=json&include=all"; then
+    if ! curl ${CURL_OPTS} -sSo "$dlfile" "${BASE_URL}?mode=json&include=all"; then
       echo "::error::获取版本清单失败: ${BASE_URL}"
       exit 1
     fi
@@ -54,7 +58,7 @@ main() {
       local sum="$1" name="$2"
       local url="${BASE}${name}"
       for i in 1 2 3; do
-        if curl ${cdlopts[@]} -o "dist/${name}" "${url}"; then
+        if curl ${CURL_OPTS} -o "dist/${name}" "${url}"; then
           return 0
         fi
         sleep $((i * 3))
@@ -82,19 +86,11 @@ main() {
     echo "::notice::Golang 发布由 softprops/action-gh-release 步骤处理 !!!"
   }
   # ---------- 调度 ----------
-  local cdlopts=(
-    -4fL
-    --retry 3
-    --retry-all-errors
-    --retry-delay 2
-    --connect-timeout 15
-    --max-time 1800
-  )
   local tempsums="${RUNNER_TEMP}/manifest.sums"
   case $1 in
     [Ss][1234]) eval "step${1#[sS]}" ;;
     *)
-      echo "::error::未知步骤: ${step:-<空>}, 用法: $0 S1|S2|S3|S4"
+      echo "::error::未知步骤: ${1:-<空>}, 用法: $0 S1|S2|S3|S4"
       exit 1
       ;;
   esac
