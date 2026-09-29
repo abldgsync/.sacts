@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # 全局下载选项:使用字符串(非数组)并导出,确保 xargs 派生的子 shell 中 download_one 也能继承
-CURL_OPTS="-4fL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
+CURL_OPTS="--retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
 export CURL_OPTS
 
 main() {
@@ -13,7 +13,7 @@ main() {
   step1() {
     local want="" dlfile='dl.json'
     if [[ -n "${WANT:-}" ]]; then want="go${WANT#go}"; fi
-    if ! curl ${CURL_OPTS} -sSo "$dlfile" "${BASE_URL}?mode=json&include=all"; then
+    if ! curl ${CURL_OPTS} -4fsSLo "$dlfile" "${BASE_URL}?mode=json&include=all"; then
       echo "::error::获取版本清单失败: ${BASE_URL}"
       exit 1
     fi
@@ -58,7 +58,7 @@ main() {
       local sum="$1" name="$2"
       local url="${BASE}${name}"
       for i in 1 2 3; do
-        if curl ${CURL_OPTS} -o "dist/${name}" "${url}"; then
+        if curl ${CURL_OPTS} -4fsSLo "dist/${name}" "${url}"; then
           return 0
         fi
         sleep $((i * 3))
