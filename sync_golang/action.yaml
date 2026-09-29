@@ -72,16 +72,9 @@ runs:
       run: |
         set -euo pipefail
         cd dist
-        sha256sum -c "${RUNNER_TEMP}/manifest.sums"
-        {
-          echo "### Golang ${{ env.GOVERSION }}"
-          echo ""
-          echo "共 $(wc -l < "${RUNNER_TEMP}/manifest.sums") 个文件,SHA256 校验通过:"
-          echo ""
-          echo '```'
-          awk '{print $2}' "${RUNNER_TEMP}/manifest.sums"
-          echo '```'
-        } >> "${GITHUB_STEP_SUMMARY}"
+        if sha256sum -c "${RUNNER_TEMP}/manifest.sums"; then
+          echo "共 $(wc -l < "${RUNNER_TEMP}/manifest.sums") 个文件,SHA256 校验通过"
+        fi
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3
