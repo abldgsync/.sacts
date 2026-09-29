@@ -13,15 +13,15 @@ runs:
       env:
         WANT: ${{ inputs.binvern }}
         BASE_URL: https://go.dev/dl/
-      run: bash "${{ github.action_path }}/scripts/sync.sh" S1
+      run: bash "${{ github.action_path }}/zutils.sh" s1
 
     - name: S2 并行下载全部二进制包
       shell: bash
-      run: bash "${{ github.action_path }}/scripts/sync.sh" S2
+      run: bash "${{ github.action_path }}/zutils.sh" s2
 
     - name: S3 校验 SHA256
       shell: bash
-      run: bash "${{ github.action_path }}/scripts/sync.sh" S3
+      run: bash "${{ github.action_path }}/zutils.sh" s3
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Golang 同步一体化脚本:按步骤参数(S1/S2/S3/S4)调用对应函数
+# 调用方式: bash sync.sh S1 | S2 | S3 | S4
+# 入参(环境变量): WANT / BASE_URL(S1 会把 VTAG/GOVERSION/BASE 写回 GITHUB_ENV)
+# set -euo pipefail
+
+main() {
+  # ---------- S1: 解析版本并生成下载/校验清单 ----------
+  step1() {
+    local want="" dlfile='dl.json'
+    if [[ -n "${WANT:-}" ]]; then want="go${WANT#go}"; fi
+    if ! curl ${cdlopts[@]} -sSo "$dlfile" "${BASE_URL}?mode=json&include=all"; then
+      echo "::error::获取版本清单失败: ${BASE_URL}"
+      exit 1
+    fi
+    if ! jq -e 'type == "array" and length > 0' "$dlfile" > /dev/null 2>&1; then
+      echo "::error::获取的版本清单不是有效的JSON数组"
+      exit 1
+    fi
+    local sel='.stable == true'
+    if [[ -n "${want}" ]]; then
+      sel="${sel} and .version == \"${want}\""
+    fi
+    local VN="$(jq -r "map(select(${sel})) | first | .version // empty" "$dlfile")"
+    if [[ -z "${VN}" ]]; then
+      echo "::error::未找到匹配的稳定版本${want:+: ${want}}"
+      exit 1
+    fi
+    if [[ "${VN}" =~ (rc|beta|alpha) ]]; then
+      echo "::error::解析到预发布版本 ${VN},请显式指定稳定版本号"
+      exit 1
+    fi
+    local JQPAT='map(select(.version == $vn))'
+    JQPAT+='| .[0].files[]? '
+    JQPAT+='| select(.sha256 != null and .sha256 != "") '
+    JQPAT+='| "\(.sha256)  \(.filename)" '
+    jq -r --arg vn "${VN}" "${JQPAT}" "$dlfile" > "$tempsums"
+    if [[ ! -s "$tempsums" ]]; then
+      echo "::error::未找到任何可下载资源"
+      exit 1
+    fi
+    {
+      echo "VTAG=v${VN#go}"
+      echo "GOVERSION=${VN}"
+      echo "BASE=${BASE_URL}"
+    } >> "$GITHUB_ENV"
+    echo "解析到版本: ${VN} ($(wc -l < "$tempsums") 个资源)"
+  }
+
+  # ---------- S2: 并行下载二进制包 ----------
+  step2() {
+    mkdir -p dist
+    download_one() {
+      local sum="$1" name="$2"
+      local url="${BASE}${name}"
+      for i in 1 2 3; do
+        if curl ${cdlopts[@]} -o "dist/${name}" "${url}"; then
+          return 0
+        fi
+        sleep $((i * 3))
+      done
+      echo "::error::下载失败: ${url}"
+      return 1
+    }
+    export -f download_one
+    xargs -P 8 -n 2 bash -c 'download_one "$@"' _ < "${tempsums}"
+    echo "下载完成,文件数: $(find dist -type f | wc -l)"
+  }
+  # ---------- S3: 校验 SHA256 ----------
+  step3() {
+    if [ -e ${tempsums} ]; then
+      cd dist
+      # 直接执行(不在 if 中),确保校验失败时以非 0 退出,使 set -e 中止流程
+      sha256sum -c "${tempsums}"
+      echo "共 $(wc -l < "${tempsums}") 个文件,SHA256 校验通过"
+    fi
+  }
+  # ---------- S4: 发布(占位) ----------
+  # Golang 的发布由 action.yaml 中的 softprops/action-gh-release 步骤完成,
+  # 本脚本不负责发布,此处保留空实现以对齐 S1..S4 统一调用约定。
+  step4() {
+    echo "::notice::Golang 发布由 softprops/action-gh-release 步骤处理 !!!"
+  }
+  # ---------- 调度 ----------
+  local cdlopts=(
+    -4fL
+    --retry 3
+    --retry-all-errors
+    --retry-delay 2
+    --connect-timeout 15
+    --max-time 1800
+  )
+  local tempsums="${RUNNER_TEMP}/manifest.sums"
+  case $1 in
+    [Ss][1234]) eval "step${1#[sS]}" ;;
+    *)
+      echo "::error::未知步骤: ${step:-<空>}, 用法: $0 S1|S2|S3|S4"
+      exit 1
+      ;;
+  esac
+}
+main "$@"
