@@ -1,0 +1,87 @@
+name: Sync Kubectl Binaries
+description: 从 dl.k8s.io 下载并发布 Kubectl 二进制到调用方仓库
+inputs:
+  binvern:
+    description: '指定 Kubectl 版本号(如 v1.33.6 或 1.33.6,不填则使用最新稳定版)'
+    required: false
+    default: ''
+  withsvr:
+    description: '包含 SERVER 及 NODE 版本(0|1)'
+    required: false
+    default: '1'
+runs:
+  using: composite
+  steps:
+    - name: 解析版本并生成下载清单
+      shell: bash
+      env:
+        WANT: ${{ inputs.binvern }}
+        WXSV: ${{ inputs.withsvr }}
+        API: https://api.github.com/repos/kubernetes/kubernetes/releases
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+        vnstr=latest
+        if [[ -n "${WANT:-}" ]]; then vnstr="tags/v${WANT#v}"; fi
+        VN=$(curl -fsSL --retry 3 --retry-delay 2 "${auth[@]}" "${API}/${vnstr}" | jq -r '.tag_name')
+        if [[ "${VN}" =~ -(rc|beta|alpha) ]]; then
+          echo "::error::解析到预发布版本 ${VN},请显式指定稳定版本号"
+          exit 1
+        fi
+        curl -fsSL --retry 3 "https://dl.k8s.io/${VN}/SHA512SUMS" -o "${RUNNER_TEMP}/SHA512SUMS"
+        pat='kubernetes\.tar\.gz$|kubernetes-client-.*tar\.gz$'
+        if [[ "${WXSV:-0}" == "1" ]]; then
+          pat='kubernetes\.tar\.gz$|kubernetes-(client|server|node)-.*tar\.gz$'
+        fi
+        grep -E "$pat" "${RUNNER_TEMP}/SHA512SUMS" > "${RUNNER_TEMP}/manifest.sums"
+        grep -v 'loong' "${RUNNER_TEMP}/manifest.sums" > "${RUNNER_TEMP}/manifest.filtered.txt"
+        mv "${RUNNER_TEMP}/manifest.filtered.txt" "${RUNNER_TEMP}/manifest.sums"
+        if [[ ! -s "${RUNNER_TEMP}/manifest.sums" ]]; then
+          echo "::error::未找到任何可下载资源"
+          exit 1
+        fi
+        echo "VTAG=${VN}" >> "$GITHUB_ENV"
+        echo "BASE=https://dl.k8s.io/${VN}" >> "$GITHUB_ENV"
+        echo "解析到版本: ${VN} ($(wc -l < "${RUNNER_TEMP}/manifest.sums") 个资源)"
+
+    - name: 并行下载全部二进制包
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        download_one() {
+          local sum="$1" name="$2"
+          local url="${BASE}/${name}"
+          for i in 1 2 3; do
+            if curl -4fL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1200 -o "dist/${name}" "${url}"; then
+              return 0
+            fi
+            sleep $((i * 3))
+          done
+          echo "::error::下载失败: ${url}"
+          return 1
+        }
+        export -f download_one
+        xargs -P 8 -n 2 bash -c 'download_one "$@"' _ < "${RUNNER_TEMP}/manifest.sums"
+        echo "下载完成,文件数: $(find dist -type f | wc -l)"
+
+    - name: 校验完整性(SHA512)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd dist
+        sha512sum -c "${RUNNER_TEMP}/manifest.sums"
+
+    - name: 发布到 Releases
+      uses: softprops/action-gh-release@v3
+      with:
+        files: dist/*
+        tag_name: "${{ env.VTAG }}"
+        name: "Kubectl ${{ env.VTAG }} Binaries"
+        body: |
+          手动从 Kubectl 官网同步二进制程序
+          - 版本: ${{ env.VTAG }}
+          - 官网下载地址: ${{ env.BASE }}/TGZ_FILENAME
+        overwrite_files: true
+        fail_on_unmatched_files: true
