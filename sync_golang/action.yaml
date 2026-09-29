@@ -1,8 +1,8 @@
-name: Sync Zig Binaries
-description: 从 ziglang.org 下载并发布 Zig 二进制到调用方仓库
+name: Sync Golang Binaries
+description: 从 go.dev 下载并发布 Golang 二进制到调用方仓库
 inputs:
   binvern:
-    description: '指定 Zig 版本号(如 0.15.2,不填则使用最新稳定版)'
+    description: '指定 Golang 版本号(如 1.25.0 或 go1.25.0,不填则使用最新稳定版)'
     required: false
     default: ''
 runs:
@@ -12,43 +12,38 @@ runs:
       shell: bash
       env:
         WANT: ${{ inputs.binvern }}
-        INDEX_URL: https://ziglang.org/download/index.json
+        BASE_URL: https://go.dev/dl/
       run: |
         set -euo pipefail
-        if ! curl -4fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 -o "${RUNNER_TEMP}/index.json" "${INDEX_URL}"; then
-          echo "::error::获取版本清单失败: ${INDEX_URL}"
+        want=""
+        if [[ -n "${WANT:-}" ]]; then want="go${WANT#go}"; fi
+        if ! curl -4fsSLo dl.json --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 "${BASE_URL}?mode=json&include=all"; then
+          echo "::error::获取版本清单失败: ${BASE_URL}"
           exit 1
         fi
-        if ! jq -e 'type == "object"' "${RUNNER_TEMP}/index.json" >/dev/null 2>&1; then
-          echo "::error::获取的版本清单不是有效的JSON对象"
+        if ! jq -e 'type == "array" and length > 0' dl.json >/dev/null 2>&1; then
+          echo "::error::获取的版本清单不是有效的JSON数组"
           exit 1
         fi
-        want="${WANT:-}"
-        if [[ -n "${want}" ]]; then
-          if ! jq -e --arg v "${want}" 'has($v)' "${RUNNER_TEMP}/index.json" >/dev/null 2>&1; then
-            echo "::error::未找到指定版本: ${want}"
-            exit 1
-          fi
-          VN="${want}"
-        else
-          VN=$(jq -r 'keys[]' "${RUNNER_TEMP}/index.json" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vr | head -n 1)
-          if [[ -z "${VN}" ]]; then
-            echo "::error::无法解析最新稳定版本"
-            exit 1
-          fi
+        sel='.stable == true'
+        if [[ -n "${want}" ]]; then sel="${sel} and .version == \"${want}\""; fi
+        VN="$(jq -r "map(select(${sel})) | first | .version // empty" dl.json)"
+        if [[ -z "${VN}" ]]; then
+          echo "::error::未找到匹配的稳定版本${want:+: ${want}}"
+          exit 1
         fi
-        if [[ "${VN}" =~ (-dev|rc|beta|alpha) ]]; then
+        if [[ "${VN}" =~ (rc|beta|alpha) ]]; then
           echo "::error::解析到预发布版本 ${VN},请显式指定稳定版本号"
           exit 1
         fi
-        jq -r --arg vn "${VN}" '.[$vn] | to_entries[] | .value | select(type == "object" and (.tarball != null) and (.shasum != null)) | "\(.shasum)  \(.tarball | sub(".*/"; ""))"' "${RUNNER_TEMP}/index.json" > "${RUNNER_TEMP}/manifest.sums"
+        jq -r --arg vn "${VN}" 'map(select(.version == $vn)) | .[0].files[]? | select(.sha256 != null and .sha256 != "") | "\(.sha256)  \(.filename)"' dl.json > "${RUNNER_TEMP}/manifest.sums"
         if [[ ! -s "${RUNNER_TEMP}/manifest.sums" ]]; then
           echo "::error::未找到任何可下载资源"
           exit 1
         fi
-        echo "VTAG=v${VN}" >> "$GITHUB_ENV"
-        echo "ZIGVERSION=${VN}" >> "$GITHUB_ENV"
-        echo "BASE=https://ziglang.org/download/${VN}" >> "$GITHUB_ENV"
+        echo "VTAG=v${VN#go}" >> "$GITHUB_ENV"
+        echo "GOVERSION=${VN}" >> "$GITHUB_ENV"
+        echo "BASE=${BASE_URL}" >> "$GITHUB_ENV"
         echo "解析到版本: ${VN} ($(wc -l < "${RUNNER_TEMP}/manifest.sums") 个资源)"
 
     - name: 并行下载全部二进制包
@@ -58,7 +53,7 @@ runs:
         mkdir -p dist
         download_one() {
           local sum="$1" name="$2"
-          local url="${BASE}/${name}"
+          local url="${BASE}${name}"
           for i in 1 2 3; do
             if curl -4fL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800 -o "dist/${name}" "${url}"; then
               return 0
@@ -79,24 +74,24 @@ runs:
         cd dist
         sha256sum -c "${RUNNER_TEMP}/manifest.sums"
         {
-          echo "### Zig ${{ env.ZIGVERSION }}"
+          echo "### Golang ${{ env.GOVERSION }}"
           echo ""
           echo "共 $(wc -l < "${RUNNER_TEMP}/manifest.sums") 个文件,SHA256 校验通过:"
           echo ""
           echo '```'
           awk '{print $2}' "${RUNNER_TEMP}/manifest.sums"
           echo '```'
-        } >> "${GITHUB_STEP_SUMMARY}"
+        } >> "${GITHUB_STEP_SUMMARY"
 
     - name: 发布到 Releases
       uses: softprops/action-gh-release@v3.0.3
       with:
         files: dist/*
         tag_name: "${{ env.VTAG }}"
-        name: "Zig ${{ env.VTAG }} Binaries"
+        name: "Golang ${{ env.VTAG }} Binaries"
         body: |
-          同步自 Zig 官网的二进制程序
-          - 版本: ${{ env.ZIGVERSION }}
+          同步自 Golang 官网的二进制程序
+          - 版本: ${{ env.GOVERSION }}
           - 官网下载地址: ${{ env.BASE }}
           - 同步任务: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         overwrite_files: true

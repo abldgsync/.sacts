@@ -32,7 +32,7 @@ runs:
         curl -fsSL --retry 3 "https://dl.k8s.io/${VN}/SHA512SUMS" -o "${RUNNER_TEMP}/SHA512SUMS"
         pat='kubernetes\.tar\.gz$|kubernetes-client-.*tar\.gz$'
         if [[ "${WXSV:-0}" == "1" ]]; then
-          pat='kubernetes\.tar\.gz$|kubernetes-(client|server|node)-.*tar\.gz$'
+          pat='kubernetes-(client|server|node)-.*tar\.gz$'
         fi
         grep -E "$pat" "${RUNNER_TEMP}/SHA512SUMS" > "${RUNNER_TEMP}/manifest.sums"
         grep -v 'loong' "${RUNNER_TEMP}/manifest.sums" > "${RUNNER_TEMP}/manifest.filtered.txt"
