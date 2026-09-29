@@ -11,9 +11,10 @@ stable_tags='[.[]| select(.prerelease==false and .draft==false)'
 stable_tags+='| .tag_name| select(test("^v[0-9]+[.][0-9]+[.][0-9]+[+]k3s[.]?[0-9]+$"))]'
 
 # 分页拉取全部 release,合并成单个 ${jfile}
+# 每次运行都重新拉取,不依赖旧 rel.json,避免复用工作区时读到上一次运行的过期数据
 fetch_all() {
-  [ -s "${jfile}" ] && return
   echo '[]' > "${jfile}"
+  rm -f page.json rels.tmp.json
   local page=1
   while true; do
     curl -fsSL --retry 3 --retry-delay 2 "${auth[@]}" "${API}?per_page=100&page=${page}" -o page.json

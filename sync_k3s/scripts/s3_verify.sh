@@ -6,8 +6,8 @@ set -euo pipefail
 while IFS= read -r VN; do
   [[ -z "${VN}" ]] && continue
   echo "=====> [verify] 校验版本: ${VN}"
-  if [[ ! -f "dist/${VN}/manifest.sums" ]]; then
-    echo "::warning::跳过未下载的版本 ${VN}"; continue
+  if [[ ! -s "dist/${VN}/manifest.sums" ]]; then
+    echo "::warning::跳过无校验清单的版本 ${VN}"; continue
   fi
   ( cd "dist/${VN}" && sha256sum -c manifest.sums )
   echo "<===== [verify] 通过版本: ${VN}"

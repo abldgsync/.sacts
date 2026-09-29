@@ -6,13 +6,13 @@ set -euo pipefail
 
 REPO="${GITHUB_REPOSITORY}"
 
+shopt -s nullglob
 while IFS= read -r VN; do
   [[ -z "${VN}" ]] && continue
   echo "=====> [publish] 发布版本: ${VN}"
   if [[ ! -d "dist/${VN}" ]]; then echo "::warning::跳过未下载的版本 ${VN}"; continue; fi
 
   # 收集该版本产物,排除校验清单本身
-  shopt -s nullglob
   files=()
   for f in "dist/${VN}"/*; do
     [[ "$(basename "$f")" == "manifest.sums" ]] && continue
