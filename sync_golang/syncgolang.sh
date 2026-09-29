@@ -4,28 +4,27 @@
 # 入参(环境变量): WANT / BASE_URL(S1 会把 VTAG/GOVERSION/BASE 写回 GITHUB_ENV)
 set -euo pipefail
 
-# 全局下载选项:使用字符串(非数组)并导出,确保 xargs 派生的子 shell 中 download_one 也能继承
-CURL_OPTS="--retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
-export CURL_OPTS
-
 main() {
   # ---------- S1: 解析版本并生成下载/校验清单 ----------
   step1() {
-    local want="" dlfile='dl.json'
-    if [[ -n "${WANT:-}" ]]; then want="go${WANT#go}"; fi
-    if ! curl ${CURL_OPTS} -4fsSLo "$dlfile" "${BASE_URL}?mode=json&include=all"; then
+    local jfile='dl.json'
+    if ! curl --retry 3 --retry-all-errors --retry-delay 2 \
+      --connect-timeout 15 --max-time 1800 -4fsSLo "$jfile" \
+      "${BASE_URL}?mode=json&include=all"; then
       echo "::error::获取版本清单失败: ${BASE_URL}"
       exit 1
     fi
-    if ! jq -e 'type == "array" and length > 0' "$dlfile" > /dev/null 2>&1; then
+    if ! jq -e 'type == "array" and length > 0' "$jfile" > /dev/null 2>&1; then
       echo "::error::获取的版本清单不是有效的JSON数组"
       exit 1
     fi
     local sel='.stable == true'
-    if [[ -n "${want}" ]]; then
-      sel="${sel} and .version == \"${want}\""
+    local want=""
+    if [[ -n "${WANT:-}" ]]; then
+      want="go${WANT#go}"
+      sel='.stable == true and .version == "'${want}'"'
     fi
-    local VN="$(jq -r "map(select(${sel})) | first | .version // empty" "$dlfile")"
+    local VN="$(jq -r "map(select(${sel})) | first | .version // empty" "$jfile")"
     if [[ -z "${VN}" ]]; then
       echo "::error::未找到匹配的稳定版本${want:+: ${want}}"
       exit 1
@@ -35,11 +34,11 @@ main() {
       exit 1
     fi
     local JQPAT='map(select(.version == $vn))'
-    JQPAT+='| .[0].files[]? '
-    JQPAT+='| select(.sha256 != null and .sha256 != "") '
-    JQPAT+='| "\(.sha256)  \(.filename)" '
-    jq -r --arg vn "${VN}" "${JQPAT}" "$dlfile" > "$tempsums"
-    if [[ ! -s "$tempsums" ]]; then
+    JQPAT+='|.[0].files[]?'
+    JQPAT+='|select(.sha256 != null and .sha256 != "")'
+    JQPAT+='|"\(.sha256) \(.filename)"'
+    jq -r --arg vn "${VN}" "${JQPAT}" "$jfile" > "$PKGSUMS"
+    if [[ ! -s "$PKGSUMS" ]]; then
       echo "::error::未找到任何可下载资源"
       exit 1
     fi
@@ -48,7 +47,7 @@ main() {
       echo "GOVERSION=${VN}"
       echo "BASE=${BASE_URL}"
     } >> "$GITHUB_ENV"
-    echo "解析到版本: ${VN} ($(wc -l < "$tempsums") 个资源)"
+    echo "解析到版本: ${VN} ($(wc -l < "$PKGSUMS") 个资源)"
   }
 
   # ---------- S2: 并行下载二进制包 ----------
@@ -58,7 +57,9 @@ main() {
       local sum="$1" name="$2"
       local url="${BASE}${name}"
       for i in 1 2 3; do
-        if curl ${CURL_OPTS} -4fsSLo "dist/${name}" "${url}"; then
+        if curl --retry 3 --retry-all-errors --retry-delay 2 \
+          --connect-timeout 15 --max-time 1800 \
+          -4fsSLo "dist/${name}" "${url}"; then
           return 0
         fi
         sleep $((i * 3))
@@ -67,32 +68,21 @@ main() {
       return 1
     }
     export -f download_one
-    xargs -P 8 -n 2 bash -c 'download_one "$@"' _ < "${tempsums}"
+    xargs -P 8 -n 2 bash -c 'download_one "$@"' _ < "${PKGSUMS}"
     echo "下载完成,文件数: $(find dist -type f | wc -l)"
   }
   # ---------- S3: 校验 SHA256 ----------
   step3() {
-    if [ -e ${tempsums} ]; then
-      cd dist
-      # 直接执行(不在 if 中),确保校验失败时以非 0 退出,使 set -e 中止流程
-      sha256sum -c "${tempsums}"
-      echo "共 $(wc -l < "${tempsums}") 个文件,SHA256 校验通过"
-    fi
-  }
-  # ---------- S4: 发布(占位) ----------
-  # Golang 的发布由 action.yaml 中的 softprops/action-gh-release 步骤完成,
-  # 本脚本不负责发布,此处保留空实现以对齐 S1..S4 统一调用约定。
-  step4() {
-    echo "::notice::Golang 发布由 softprops/action-gh-release 步骤处理 !!!"
+    # 直接执行(不在 if 中),确保校验失败时以非 0 退出,使 set -e 中止流程
+    cd dist
+    sha256sum -c "${PKGSUMS}"
+    echo "共 $(wc -l < "${PKGSUMS}") 个文件,SHA256 校验通过"
   }
   # ---------- 调度 ----------
-  local tempsums="${RUNNER_TEMP}/manifest.sums"
+  local PKGSUMS="${RUNNER_TEMP}/manifest.sums"
   case $1 in
-    [Ss][1234]) eval "step${1#[sS]}" ;;
-    *)
-      echo "::error::未知步骤: ${1:-<空>}, 用法: $0 S1|S2|S3|S4"
-      exit 1
-      ;;
+    [Ss][123]) eval "step${1#[sS]}" ;;
+    *) echo "用法: $0 S1|S2|S3" && exit 1 ;;
   esac
 }
 main "$@"
