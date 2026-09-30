@@ -12,7 +12,6 @@ runs:
       shell: bash
       env:
         WANT: ${{ inputs.binvern }}
-        API: https://api.github.com/repos/helm/helm/releases
         GH_TOKEN: ${{ github.token }}
       run: bash "${{ github.action_path }}/synchelm.sh" S1
 
@@ -28,24 +27,4 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-      run: |
-        first=1
-        while IFS= read -r VN; do
-          [[ -z "$VN" ]] && continue
-          echo "=====> 发布版本: $VN"
-          if gh release view "$VN" >/dev/null 2>&1; then
-            echo "::notice::已存在 release $VN, 先删除再重建"
-            gh release delete "$VN" -y
-          fi
-          if [[ $first -eq 1 ]]; then
-            gh release create "$VN" dist/"$VN"/* \
-              --title "Helm ${VN} Binaries" \
-              --notes "同步自 Helm 官网的二进制程序 (版本: ${VN}, 官网: https://get.helm.sh/)"
-            first=0
-          else
-            gh release create "$VN" dist/"$VN"/* \
-              --title "Helm ${VN} Binaries" \
-              --notes "同步自 Helm 官网的二进制程序 (版本: ${VN}, 官网: https://get.helm.sh/)" \
-              --latest=false
-          fi
-        done < "${RUNNER_TEMP}/versions.txt"
+      run: bash "${{ github.action_path }}/synchelm.sh" S4
