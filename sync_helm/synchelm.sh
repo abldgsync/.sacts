@@ -9,8 +9,8 @@
 #            v3.19.2   -> 精确版本(须为稳定版)
 #   GH_TOKEN - 由 action.yaml 在 S1/S4 步骤注入:S1 拉取 GitHub API,S4 供 gh 发布使用
 # 产物与步骤:
-#   S1 解析稳定版本 -> 生成 manifest-${VN}.txt,并通过 GITHUB_ENV 导出 VTAG/BASE/VERSIONS 供后续步骤
-#      后续步骤(S2/S3/S4)统一从 $VERSIONS 读取待操作版本,不再依赖 versions.txt
+#   S1 解析稳定版本 -> 生成 manifest-${VN}.txt,并把版本列表写入 FILE_VERSIONS(versions.txt)
+#      后续步骤(S2/S3/S4)统一从 FILE_VERSIONS 读取待操作版本(不再依赖 GITHUB_ENV / VERSIONS 环境变量)
 #   S2 并行下载到 dist/${VN}/
 #   S3 联网取 ${name}.sha256 与本地 sha256sum 比对校验
 #   S4 逐个版本 gh release create 发布(首个标 --latest,已存在则先删后建)
@@ -21,7 +21,6 @@ main() {
   export FLIE_RELSJSON="${RUNNER_TEMP}/releases.json"
   export FILE_VERSIONS="${RUNNER_TEMP}/versions.txt"
   export FILE_ALL_TAGS="${RUNNER_TEMP}/all_tags.txt"
-  # export GITHUB_ENV="${GITHUB_ENV:-$RUNNER_TEMP/runners.env}"
   export URL_BASE="https://get.helm.sh/"
   export URL_API="https://api.github.com/repos/helm/helm/releases"
   # ---------- S1: 解析版本并生成下载清单 ----------

@@ -27,4 +27,6 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        # 本步骤不 checkout,无 .git,gh 无法靠 git 推断仓库;显式指定目标仓库
+        GH_REPO: ${{ github.repository }}
       run: bash "${{ github.action_path }}/synchelm.sh" S4
