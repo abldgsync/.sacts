@@ -25,8 +25,6 @@ main() {
   export URL_API="https://api.github.com/repos/helm/helm/releases"
   # ---------- S1: 解析版本并生成下载清单 ----------
   step1() {
-    # auth 仅 S1 使用,且 GH_TOKEN 仅在 S1 步骤注入;定义在函数内避免其它步骤触发 set -u 未绑定错误
-    # local auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
     # 1) 分页拉取全部 release 并合并成单个 releases.json
     if [ ! -e ${FLIE_RELSJSON} ]; then
       echo '[]' > ${FLIE_RELSJSON}
