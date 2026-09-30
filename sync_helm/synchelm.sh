@@ -46,14 +46,13 @@ main() {
     jq -r '.[]|select(.prerelease==false)|.tag_name' ${FLIE_RELSJSON} > ${FILE_ALL_TAGS}
 
     # 3) 按 WANT 选择版本
-    local out=""
     if [[ -z "${WANT:-}" ]]; then
       # 不传: 各 major 取最新, 再取版本最新的两个 major
-      out="$(head -n 2 ${FILE_ALL_TAGS} | xargs)"
+      head -n 2 ${FILE_ALL_TAGS} > ${FILE_VERSIONS}
     else
-      out="$(awk '/^.'"${WANT#[Vv]}"'/' "${FILE_ALL_TAGS}" | head -n 1)"
+      awk '/^.'"${WANT#[Vv]}"'\./' "${FILE_ALL_TAGS}" | head -n 1> ${FILE_VERSIONS}
     fi
-    if [[ -z "${out}" || "${out}" == *"null"* ]]; then
+    if [[ $(wc -l < "${FILE_VERSIONS}") -eq 0 ]]; then
       echo "::error::未匹配到任何稳定版本(输入: ${WANT:-<空>})"
       exit 1
     fi
@@ -64,17 +63,15 @@ main() {
     jqpat_getfn+='|.assets[].name'
     jqpat_getfn+='|select(endswith(".sha256.asc"))'
     jqpat_getfn+='|rtrimstr(".sha256.asc")'
-    : > "${FILE_VERSIONS}"
-    local VN mfile && for VN in ${out}; do
-      echo "$VN" >> "${FILE_VERSIONS}"
-      mfile="${RUNNER_TEMP}/manifest-${VN}.txt"
-      jq -r --arg t "$VN" "${jqpat_getfn}" ${FLIE_RELSJSON}  | grep -v 'loong' > "${mfile}"
-      if [[ ! -s "${mfile}" ]]; then
+    local VN mf && while IFS= read -r VN; do
+      mf="${RUNNER_TEMP}/manifest-${VN}.txt"
+      jq -r --arg t "$VN" "${jqpat_getfn}" ${FLIE_RELSJSON} | grep -v 'loong' > "${mf}"
+      if [[ ! -s "${mf}" ]]; then
         echo "::error::版本 $VN 未找到可下载资源"
         exit 1
       fi
-    done
-    echo "解析到版本: ${out} (共 $(printf '%s\n' ${out} | wc -l) 个)"
+    done < ${FILE_VERSIONS}
+    echo "解析到版本: $(xargs < ${FILE_VERSIONS}) (共 $(wc -l < "${FILE_VERSIONS}") 个)"
   }
 
   # ---------- S2: 并行下载二进制包(按版本循环) ----------
