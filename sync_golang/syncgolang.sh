@@ -16,7 +16,7 @@
 #   S4 逐个版本 gh release create 发布(首个标 --latest,已存在则先删后建)
 set -euo pipefail
 main() {
-  BASE_URL=https://golang.google.cn/dl/
+  # BASE_URL=https://golang.google.cn/dl/
   export CURL_OPTS="--retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
   export RUNNER_TEMP="${RUNNER_TEMP:-$PWD}"
   export FILE_VERSIONS="${RUNNER_TEMP}/versions.txt"
