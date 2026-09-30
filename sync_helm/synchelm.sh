@@ -3,97 +3,88 @@
 # 调用方式: bash synchelm.sh S1 | S2 | S3 | S4
 # 入参(环境变量):
 #   WANT   - 可选版本约束:
-#            空        -> 取最新两个 major 系列各自的最新稳定版(如 v4.3.0 与 v3.22.0)
+#            空        -> 取最新两个稳定版本(默认如 v4.3.0 与 v3.22.0)
 #            v3 / 3    -> v3 系列最新稳定版(如 v3.22.0)
 #            v3.19     -> v3.19 系列最新 patch(如 v3.19.5)
 #            v3.19.2   -> 精确版本(须为稳定版)
-#   API    - GitHub releases API 基址(默认在 action.yaml 中注入)
-#   GH_TOKEN - 由 action.yaml 在 S1/S4 步骤注入:S1 访问 GitHub API,S4 供 gh 发布使用
-# S1 会把 VTAG/BASE/VERSIONS 写回 GITHUB_ENV,并生成 ${RUNNER_TEMP}/versions.txt 与各版本清单
+#   GH_TOKEN - 由 action.yaml 在 S1/S4 步骤注入:S1 拉取 GitHub API,S4 供 gh 发布使用
+# 产物与步骤:
+#   S1 解析稳定版本 -> 生成 manifest-${VN}.txt,并通过 GITHUB_ENV 导出 VTAG/BASE/VERSIONS 供后续步骤
+#      后续步骤(S2/S3/S4)统一从 $VERSIONS 读取待操作版本,不再依赖 versions.txt
+#   S2 并行下载到 dist/${VN}/
+#   S3 联网取 ${name}.sha256 与本地 sha256sum 比对校验
+#   S4 逐个版本 gh release create 发布(首个标 --latest,已存在则先删后建)
 set -euo pipefail
-export CURL_OPTS="--retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
-# export RUNNER_TEMP=${PWD}
 main() {
+  export CURL_OPTS="--retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
+  export RUNNER_TEMP="${RUNNER_TEMP:-$PWD}"
+  export FLIE_RELSJSON="${RUNNER_TEMP}/releases.json"
+  export FILE_VERSIONS="${RUNNER_TEMP}/versions.txt"
+  export FILE_ALL_TAGS="${RUNNER_TEMP}/all_tags.txt"
+  # export GITHUB_ENV="${GITHUB_ENV:-$RUNNER_TEMP/runners.env}"
+  export URL_BASE="https://get.helm.sh/"
+  export URL_API="https://api.github.com/repos/helm/helm/releases"
   # ---------- S1: 解析版本并生成下载清单 ----------
   step1() {
     # auth 仅 S1 使用,且 GH_TOKEN 仅在 S1 步骤注入;定义在函数内避免其它步骤触发 set -u 未绑定错误
     # local auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
     # 1) 分页拉取全部 release 并合并成单个 releases.json
-    local jfile="${RUNNER_TEMP}/releases.json"
-    local atags="${RUNNER_TEMP}/alltags.txt"
-    if [ ! -e $jfile ]; then
-      echo '[]' > $jfile
+    if [ ! -e ${FLIE_RELSJSON} ]; then
+      echo '[]' > ${FLIE_RELSJSON}
       local page=1
-      local apiurl="https://api.github.com/repos/helm/helm/releases"
       while true; do
-        if ! curl ${CURL_OPTS} -fsSL "${apiurl}?per_page=100&page=${page}" -o pjson; then
-          echo "::error::拉取 release 列表失败: ${API}"
+        if ! curl ${CURL_OPTS} -fsSL "${URL_API}?per_page=100&page=${page}" -o pjson; then
+          echo "::error::拉取 release 列表失败: ${URL_API}"
           exit 1
         fi
         if [[ "$(jq 'length' pjson)" -lt 100 ]]; then break; fi
-        jq -s '.[0] + .[1]' $jfile pjson > tmp.json && mv tmp.json $jfile
+        jq -s '.[0] + .[1]' ${FLIE_RELSJSON} pjson > tmp.json && mv tmp.json ${FLIE_RELSJSON}
         ((page++))
       done
       rm -f pjson
     fi
     # 从 releases.json 中取出 tag_name 并写入 ${atags}
-    jq -r '.[]|select(.prerelease==false)|.tag_name' $jfile > ${atags}
+    jq -r '.[]|select(.prerelease==false)|.tag_name' ${FLIE_RELSJSON} > ${FILE_ALL_TAGS}
 
     # 3) 按 WANT 选择版本
     local out=""
     if [[ -z "${WANT:-}" ]]; then
       # 不传: 各 major 取最新, 再取版本最新的两个 major
-      out="$(head -n 2 ${atags} | xargs)"
+      out="$(head -n 2 ${FILE_ALL_TAGS} | xargs)"
     else
-      out="$(awk '/^.'"${WANT#[Vv]}"'/' "${atags}" | head -n 1)"
+      out="$(awk '/^.'"${WANT#[Vv]}"'/' "${FILE_ALL_TAGS}" | head -n 1)"
     fi
     if [[ -z "${out}" || "${out}" == *"null"* ]]; then
       echo "::error::未匹配到任何稳定版本(输入: ${WANT:-<空>})"
       exit 1
     fi
-    # rm -f alltags
 
-    # 4) 写出版本清单 + 各版本资产清单(供 s2/s3 循环), 并写 GITHUB_ENV
+    # 4) 生成各版本资产清单 manifest-${VN}.txt,并把版本列表写入 FILE_VERSIONS(versions.txt)供后续步骤读取
     local jqpat_getfn='.[]'
     jqpat_getfn+='|select(.tag_name==$t)'
     jqpat_getfn+='|.assets[].name'
     jqpat_getfn+='|select(endswith(".sha256.asc"))'
     jqpat_getfn+='|rtrimstr(".sha256.asc")'
-    local first_vn=""
-    local VN && for VN in ${out}; do
-      [[ -z "$VN" ]] && continue
-      [[ -z "$first_vn" ]] && first_vn="$VN"
-      echo "$VN" >> ${RUNNER_TEMP}/versions.txt
-      local mfile="${RUNNER_TEMP}/manifest-${VN}.txt"
-      jq -r --arg t "$VN" "${jqpat_getfn}" $jfile | grep -v 'loong' > "${mfile}"
+    : > "${FILE_VERSIONS}"
+    local VN mfile && for VN in ${out}; do
+      echo "$VN" >> "${FILE_VERSIONS}"
+      mfile="${RUNNER_TEMP}/manifest-${VN}.txt"
+      jq -r --arg t "$VN" "${jqpat_getfn}" ${FLIE_RELSJSON}  | grep -v 'loong' > "${mfile}"
       if [[ ! -s "${mfile}" ]]; then
         echo "::error::版本 $VN 未找到可下载资源"
         exit 1
       fi
     done
-    # return 0
-
-    {
-      echo "VTAG=${first_vn}"
-      echo "RDIR=${RUNNER_TEMP}"
-      echo "BASE=https://get.helm.sh/"
-      echo "VERSIONS=${out[@]}"
-    } >> "$GITHUB_ENV"
-    echo "解析到版本: ${out[@]} (共 $(printf '%s\n' ${out[@]} | wc -l) 个)"
+    echo "解析到版本: ${out} (共 $(printf '%s\n' ${out} | wc -l) 个)"
   }
 
   # ---------- S2: 并行下载二进制包(按版本循环) ----------
   step2() {
-    local vf="${RUNNER_TEMP}/versions.txt"
-    if [[ ! -s "$vf" ]]; then
-      echo "::error::未找到版本清单: $vf (请先运行 S1)"
-      exit 1
-    fi
     mkdir -p dist
     download_one() {
       local VN="$1" name="$2"
       mkdir -p "dist/${VN}"
-      local url="${BASE}${name}"
+      local url="${URL_BASE}${name}"
       for i in 1 2 3; do
         if curl ${CURL_OPTS} -4fL -o "dist/${VN}/${name}" "${url}"; then
           return 0
@@ -115,34 +106,29 @@ main() {
         echo "::error::未找到版本 ${VN} 的下载清单: ${mfile}"
         exit 1
       fi
-      # 过滤空行,避免 download_one 被传入空文件名;保留 8 路并行
+      # 过滤空行/注释,避免 download_one 被传入空文件名;保留 8 路并行
       grep -vE '^(#|$)' "${mfile}" | xargs -I{} -P 8 bash -c 'download_one "$1" "$2"' _ "${VN}" {}
-    done < "${vf}"
+    done < "${FILE_VERSIONS}"
     echo "下载完成,文件数: $(find dist -type f | wc -l)"
   }
 
   # ---------- S3: 校验 SHA256(按版本循环) ----------
   # Helm 的校验方式是联网取得 ${name}.sha256 与本地 sha256sum 比对(源站提供独立 .sha256 文件)
   step3() {
-    local vf="${RUNNER_TEMP}/versions.txt"
-    if [[ ! -s "$vf" ]]; then
-      echo "::error::未找到版本清单: $vf (请先运行 S1)"
-      exit 1
-    fi
     local fail=0 VN name sum actual mfile
     while IFS= read -r VN; do
       [[ -z "$VN" ]] && continue
       echo "=====> [S3] 校验版本: ${VN}"
       mfile="${RUNNER_TEMP}/manifest-${VN}.txt"
       while IFS= read -r name; do
-        sum=$(curl ${CURL_OPTS} -4fsSL "${BASE}${name}.sha256" | awk '{print $1}')
+        sum=$(curl ${CURL_OPTS} -4fsSL "${URL_BASE}${name}.sha256" | awk '{print $1}')
         actual=$(sha256sum "dist/${VN}/${name}" | awk '{print $1}')
         if [[ "${sum}" != "${actual}" ]]; then
           echo "::error::校验失败: ${VN}/${name}"
           fail=1
         fi
       done < "${mfile}"
-    done < "${vf}"
+    done < "${FILE_VERSIONS}"
     exit ${fail}
   }
 
@@ -151,11 +137,6 @@ main() {
   # 已存在的 release 先删除再重建,保证可重复运行。
   # 需要 GH_TOKEN(由 action.yaml 的 S4 步骤注入)供 gh CLI 使用。
   step4() {
-    local vf="${RUNNER_TEMP}/versions.txt"
-    if [[ ! -s "$vf" ]]; then
-      echo "::error::未找到版本清单: $vf (请先运行 S1)"
-      exit 1
-    fi
     local VN first=1
     while IFS= read -r VN; do
       [[ -z "$VN" ]] && continue
@@ -175,7 +156,7 @@ main() {
           --notes "同步自 Helm 官网的二进制程序 (版本: ${VN}, 官网: https://get.helm.sh/)" \
           --latest=false
       fi
-    done < "$vf"
+    done < "${FILE_VERSIONS}"
   }
 
   # ---------- 调度 ----------
