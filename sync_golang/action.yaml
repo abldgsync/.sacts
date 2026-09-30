@@ -1,8 +1,8 @@
 name: Sync Golang Binaries
-description: 从 go.dev 下载并发布 Golang 二进制到调用方仓库
+description: 从 go.dev 下载并发布 Golang 二进制到调用方仓库(支持多版本)
 inputs:
   binvern:
-    description: '指定 Golang 版本号(如 1.25.0 或 go1.25.0,不填则使用最新稳定版)'
+    description: '指定 Golang 版本号(如 1.25.0 或 go1.25.0,不填则使用最新两个稳定版)'
     required: false
     default: ''
 runs:
@@ -23,16 +23,10 @@ runs:
       shell: bash
       run: bash "${{ github.action_path }}/syncgolang.sh" s3
 
-    - name: 发布到 Releases
-      uses: softprops/action-gh-release@v3.0.3
-      with:
-        files: dist/*
-        tag_name: "${{ env.VTAG }}"
-        name: "Golang ${{ env.VTAG }} Binaries"
-        body: |
-          同步自 Golang 官网的二进制程序
-          - 版本: ${{ env.GOVERSION }}
-          - 官网下载地址: ${{ env.BASE }}
-          - 同步任务: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        overwrite_files: true
-        fail_on_unmatched_files: true
+    - name: 发布到 Releases(按版本循环)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # 本步骤不 checkout,无 .git,gh 无法靠 git 推断仓库;显式指定目标仓库
+        GH_REPO: ${{ github.repository }}
+      run: bash "${{ github.action_path }}/syncgolang.sh" s4
