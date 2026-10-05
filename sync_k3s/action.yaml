@@ -1,40 +1,31 @@
 name: Sync K3s Binaries
-description: 从 k3s-io/k3s GitHub Releases 下载并发布 K3s 二进制到调用方仓库
+description: 从 k3s-io/k3s GitHub Releases 下载并发布 K3s 二进制到调用方仓库(支持多版本)
 inputs:
   binvern:
-    description: '指定 K3s 版本号(如 v1.31.0+k3s1 或系列 v1.31,不填则默认同步最新的四个稳定系列)'
+    description: '指定 K3s 版本号(如 v1.31.0+k3s1 或系列 v1.31,不填则默认同步最新四个稳定版本)'
     required: false
     default: ''
-  withairgap:
-    description: '包含离线镜像包 airgap images(0|1),默认 1'
-    required: false
-    default: '1'
 runs:
   using: composite
   steps:
-    - name: 解析版本列表
+    - name: S1 解析版本并生成下载清单
       shell: bash
       env:
         WANT: ${{ inputs.binvern }}
-        WITHAIRGAP: ${{ inputs.withairgap }}
-        API: https://api.github.com/repos/k3s-io/k3s/releases
         GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/scripts/s1_resolve.sh"
+      run: bash "${{ github.action_path }}/synck3s.sh" s1
 
-    - name: 下载各版本二进制
+    - name: S2 并行下载全部二进制包
       shell: bash
-      env:
-        WITHAIRGAP: ${{ inputs.withairgap }}
-        API: https://api.github.com/repos/k3s-io/k3s/releases
-        GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/scripts/s2_download.sh"
+      run: bash "${{ github.action_path }}/synck3s.sh" s2
 
-    - name: 校验各版本 SHA256
+    - name: S3 校验 SHA256
       shell: bash
-      run: bash "${{ github.action_path }}/scripts/s3_verify.sh"
+      run: bash "${{ github.action_path }}/synck3s.sh" s3
 
-    - name: 发布到 Releases
+    - name: 按版本循环发布到 Releases
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/scripts/s4_publish.sh"
+        GH_REPO: ${{ github.repository }}
+      run: bash "${{ github.action_path }}/synck3s.sh" s4

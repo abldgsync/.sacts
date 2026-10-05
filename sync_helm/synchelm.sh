@@ -18,7 +18,7 @@ set -euo pipefail
 main() {
   export CURL_OPTS="--retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 1800"
   export RUNNER_TEMP="${RUNNER_TEMP:-$PWD}"
-  export FLIE_RELSJSON="${RUNNER_TEMP}/releases.json"
+  export FILE_RELSJSON="${RUNNER_TEMP}/releases.json"
   export FILE_VERSIONS="${RUNNER_TEMP}/versions.txt"
   export FILE_ALL_TAGS="${RUNNER_TEMP}/all_tags.txt"
   export URL_BASE="https://get.helm.sh/"
@@ -26,8 +26,8 @@ main() {
   # ---------- S1: 解析版本并生成下载清单 ----------
   step1() {
     # 1) 分页拉取全部 release 并合并成单个 releases.json
-    if [ ! -e ${FLIE_RELSJSON} ]; then
-      echo '[]' > ${FLIE_RELSJSON}
+    if [ ! -e ${FILE_RELSJSON} ]; then
+      echo '[]' > ${FILE_RELSJSON}
       local page=1
       while true; do
         if ! curl ${CURL_OPTS} -fsSL "${URL_API}?per_page=100&page=${page}" -o pjson; then
@@ -35,13 +35,13 @@ main() {
           exit 1
         fi
         if [[ "$(jq 'length' pjson)" -lt 100 ]]; then break; fi
-        jq -s '.[0] + .[1]' ${FLIE_RELSJSON} pjson > tmp.json && mv tmp.json ${FLIE_RELSJSON}
+        jq -s '.[0] + .[1]' ${FILE_RELSJSON} pjson > tmp.json && mv tmp.json ${FILE_RELSJSON}
         ((page++))
       done
       rm -f pjson
     fi
     # 从 releases.json 中取出 tag_name 并写入 ${atags}
-    jq -r '.[]|select(.prerelease==false)|.tag_name' ${FLIE_RELSJSON} > ${FILE_ALL_TAGS}
+    jq -r '.[]|select(.prerelease==false)|.tag_name' ${FILE_RELSJSON} > ${FILE_ALL_TAGS}
 
     # 3) 按 WANT 选择版本
     if [[ -z "${WANT:-}" ]]; then
@@ -63,7 +63,7 @@ main() {
     jqpat_getfn+='|rtrimstr(".sha256.asc")'
     local VN mf && while IFS= read -r VN; do
       mf="${RUNNER_TEMP}/manifest-${VN}.txt"
-      jq -r --arg t "$VN" "${jqpat_getfn}" ${FLIE_RELSJSON} | grep -v 'loong' > "${mf}"
+      jq -r --arg t "$VN" "${jqpat_getfn}" ${FILE_RELSJSON} | grep -v 'loong' > "${mf}"
       if [[ ! -s "${mf}" ]]; then
         echo "::error::版本 $VN 未找到可下载资源"
         exit 1
