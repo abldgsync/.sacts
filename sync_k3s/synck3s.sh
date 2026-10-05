@@ -96,29 +96,32 @@ main() {
     echo "解析到版本: $(xargs < "${FILE_VERSIONS}") (共 $(wc -l < "${FILE_VERSIONS}") 个)"
   }
 
-  # ---------- S2: 循环下载二进制包(按版本循环) ----------
+  # ---------- S2: 并行下载二进制包(按版本循环) ----------
   step2() {
     mkdir -p dist
-    local VN url name
+    local VN bf
     for VN in $(xargs < "${FILE_VERSIONS}"); do
       [[ -z "${VN}" ]] && continue
       echo "=====> [S2] 下载版本: ${VN}"
-      local bf="${RUNNER_TEMP}/${VN}-binfiles.txt"
+      bf="${RUNNER_TEMP}/${VN}-binfiles.txt"
       if [[ ! -s "${bf}" ]]; then
         echo "::error::未找到版本 ${VN} 的下载清单"
         exit 1
       fi
       rm -rf "dist/${VN}"
       mkdir -p "dist/${VN}"
-      while IFS= read -r url; do
-        [[ -z "${url}" ]] && continue
+      if ! CURL_OPTS="${CURL_OPTS}" VN="${VN}" xargs -a "${bf}" -P 8 -I@ bash -c '
+        url="$1"
         name="${url##*/}"
-        echo "  -> 下载: ${name}"
+        echo "  -> [${VN}] 下载: ${name}"
         if ! curl ${CURL_OPTS} -4fL -o "dist/${VN}/${name}" "${url}"; then
           echo "::error::下载失败: ${url}"
           exit 1
         fi
-      done < "${bf}"
+        ' _ @; then
+        echo "::error::版本 ${VN} 下载失败"
+        exit 1
+      fi
     done
     echo "下载完成,文件数: $(find dist -type f | wc -l)"
   }
