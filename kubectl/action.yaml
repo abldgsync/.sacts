@@ -19,19 +19,19 @@ runs:
         WXSV: ${{ inputs.withsvr }}
         API: https://api.github.com/repos/kubernetes/kubernetes/releases
         GH_TOKEN: ${{ github.token }}
-      run: bash "${{ github.action_path }}/synckubectl.sh" s1
+      run: CS=1 bash "${{ github.action_path }}/dosync.sh"
 
     - name: S2 并行下载全部二进制包
       shell: bash
-      run: bash "${{ github.action_path }}/synckubectl.sh" s2
+      run: CS=2 bash "${{ github.action_path }}/dosync.sh"
 
     - name: S3 校验 SHA512
       shell: bash
-      run: bash "${{ github.action_path }}/synckubectl.sh" s3
+      run: CS=3 bash "${{ github.action_path }}/dosync.sh"
 
     - name: 按版本循环发布到 Releases
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
-      run: bash "${{ github.action_path }}/synckubectl.sh" s4
+      run: CS=4 bash "${{ github.action_path }}/dosync.sh"

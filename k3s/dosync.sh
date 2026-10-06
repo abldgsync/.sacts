@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# K3s 同步一体化脚本:按步骤参数(S1/S2/S3/S4)调用对应函数
-# 调用方式: bash synck3s.sh S1 | S2 | S3 | S4
+# K3s 同步一体化脚本:按 CS 环境变量(1~4)调用对应函数
+# 调用方式: CS=1 bash dosync.sh (阶段 1~4,如 CS=2;不传 CS 报错退出)
 # 入参(环境变量):
 #   WANT     - 可选版本约束:
 #              空                -> 最新四个稳定版本
@@ -180,9 +180,9 @@ main() {
   }
 
   # ---------- 调度 ----------
-  case $1 in
-    [Ss][1234]) eval "step${1#[sS]}" ;;
-    *) echo "用法: $0 S1|S2|S3|S4" && exit 1 ;;
+  case ${CS:-} in
+    [1234]) eval "step${CS}" ;;
+    *) echo "::error::非法阶段 CS=${CS}(仅支持 1~4)" && exit 1 ;;
   esac
 }
 main "$@"
