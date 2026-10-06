@@ -3,11 +3,13 @@
 # 调用方式: CS=1 bash dosync.sh (阶段 1~4,如 CS=2;不传 CS 报错退出)
 # 入参(环境变量):
 #   WANT   - 可选版本约束:
-#            空        -> 取最新稳定版(如 0.15.2)
+#            空        -> 取最新 LAST_N 个稳定版
 #            0.15.2    -> 精确版本(须为稳定版)
+#            0.15      -> 取 0.15 系列最新 LAST_N 个
+#   LAST_N - 保留的最新稳定版本数量(默认 4);设 1 则仅同步最新一个
 #   GH_TOKEN - 由 action.yaml 在 S4 步骤注入(供 gh 发布使用);S1 拉取公开 index 无需鉴权
 # 产物与步骤:
-#   S1 解析稳定版本 -> 生成 manifest-${VN}.txt,并把版本列表写入 FILE_VERSIONS(versions.txt)
+#   S1 解析稳定版本 -> 生成 ${VN}-manifest.txt,并把版本列表写入 FILE_VERSIONS(versions.txt)
 #      后续步骤(S2/S3/S4)统一从 FILE_VERSIONS 读取待操作版本
 #   S2 并行下载到 dist/${VN}/
 #   S3 用官方 sha256(manifest 内的 shasum)逐文件校验
@@ -20,6 +22,7 @@ main() {
   export FILE_ALL_TAGS="${RUNNER_TEMP}/all_tags.txt"
   export FILE_INDEXJSON="${RUNNER_TEMP}/index.json"
   export INDEX_URL="https://ziglang.org/download/index.json"
+  export LAST_N="${LAST_N:-4}"
 
   # ---------- S1: 解析版本并生成下载清单 ----------
   step1() {
@@ -39,12 +42,13 @@ main() {
       | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
       | sort -Vr > ${FILE_ALL_TAGS}
 
-    # 3) 按 WANT 选择版本
+    # 3) 按 WANT 选择版本(数量受 LAST_N 控制,默认 4)
     if [[ -z "${WANT:-}" ]]; then
-      # 不传: 取整体最新稳定版; 传入前缀(如 0.15): 取该系列最新版本
-      head -n ${LAST_N:-4} ${FILE_ALL_TAGS} > ${FILE_VERSIONS}
+      # 不传: 取整体最新的 LAST_N 个稳定版
+      head -n "${LAST_N}" ${FILE_ALL_TAGS} > ${FILE_VERSIONS}
     else
-      awk '/^.'"${WANT#[Vv]}"'\./' "${FILE_ALL_TAGS}" | head -n 1> ${FILE_VERSIONS}
+      # 传前缀(如 0.15): 取该系列最新的 LAST_N 个; 精确版本(如 0.15.2)也按 LAST_N 截断
+      awk '/^.'"${WANT#[Vv]}"'\./' "${FILE_ALL_TAGS}" | head -n "${LAST_N}" > ${FILE_VERSIONS}
     fi
     if [[ $(wc -l < "${FILE_VERSIONS}") -eq 0 ]]; then
       echo "::error::未匹配到任何稳定版本(输入: ${WANT:-<空>})"

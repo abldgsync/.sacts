@@ -5,6 +5,10 @@ inputs:
     description: '指定 Zig 版本号(如 0.15.2,不填则使用最新稳定版)'
     required: false
     default: ''
+  lastn:
+    description: '保留的最新稳定版本数量(默认 4,即同步最近 N 个稳定版)'
+    required: false
+    default: '4'
 runs:
   using: composite
   steps:
@@ -12,6 +16,7 @@ runs:
       shell: bash
       env:
         WANT: ${{ inputs.binvern }}
+        LAST_N: ${{ inputs.lastn }}
         GH_TOKEN: ${{ github.token }}
       run: CS=1 bash "${{ github.action_path }}/dosync.sh"
 
