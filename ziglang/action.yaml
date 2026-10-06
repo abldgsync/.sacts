@@ -1,0 +1,32 @@
+name: Sync Zig Binaries
+description: 从 ziglang.org 下载并发布 Zig 二进制到调用方仓库
+inputs:
+  binvern:
+    description: '指定 Zig 版本号(如 0.15.2,不填则使用最新稳定版)'
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: S1 解析版本并生成下载清单
+      shell: bash
+      env:
+        WANT: ${{ inputs.binvern }}
+        GH_TOKEN: ${{ github.token }}
+      run: CS=1 bash "${{ github.action_path }}/dosync.sh"
+
+    - name: S2 并行下载全部二进制包
+      shell: bash
+      run: CS=2 bash "${{ github.action_path }}/dosync.sh"
+
+    - name: S3 校验 SHA256
+      shell: bash
+      run: CS=3 bash "${{ github.action_path }}/dosync.sh"
+
+    - name: 发布到 Releases(按版本循环)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # 本步骤不 checkout,无 .git,gh 无法靠 git 推断仓库;显式指定目标仓库
+        GH_REPO: ${{ github.repository }}
+      run: CS=4 bash "${{ github.action_path }}/dosync.sh"
