@@ -3,34 +3,22 @@ description: 下载 Docker Desktop 各平台安装包并发布到调用方仓库
 runs:
   using: composite
   steps:
-    - name: 生成日期标签
+    - name: S1 生成日期标签
       shell: bash
-      run: |
-        set -euo pipefail
-        echo "VTAG=v$(date +'%Y.%m.%d')" >> "$GITHUB_ENV"
-        echo "生成的发布标签为: ${{ env.VTAG }}"
+      run: CS=1 bash "${{ github.action_path }}/dosync.sh"
 
-    - name: 下载安装包
+    - name: S2 下载安装包
       shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p dist
-        curl -fsSLo dist/linux.sh "https://get.docker.com"
-        curl -fsSLo dist/docker_desktop_installer_windows_amd64.exe "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
-        curl -fsSLo dist/docker_desktop_installer_windows_arm64.exe "https://desktop.docker.com/win/main/arm64/Docker%20Desktop%20Installer.exe"
-        curl -fsSLo dist/docker_desktop_installer_linux_amd64.deb "https://desktop.docker.com/linux/main/amd64/docker-desktop-amd64.deb"
-        curl -fsSLo dist/docker_desktop_installer_linux_amd64.rpm "https://desktop.docker.com/linux/main/amd64/docker-desktop-x86_64.rpm"
-        curl -fsSLo dist/docker_desktop_installer_darwin_amd64.dmg "https://desktop.docker.com/mac/main/amd64/Docker.dmg"
-        curl -fsSLo dist/docker_desktop_installer_darwin_arm64.dmg "https://desktop.docker.com/mac/main/arm64/Docker.dmg"
-        echo "下载完成,文件数: $(find dist -type f | wc -l)"
+      run: CS=2 bash "${{ github.action_path }}/dosync.sh"
 
-    - name: 发布到 Releases
-      uses: softprops/action-gh-release@v3.0.3
-      with:
-        overwrite_files: false
-        tag_name: "${{ env.VTAG }}"
-        name: "Daily Build - ${{ env.VTAG }}"
-        body: |
-          这是一个自动生成的每日构建发布。
-          - 构建时间: ${{ env.VTAG }}
-        files: dist/*
+    - name: S3 校验(跳过)
+      shell: bash
+      run: CS=3 bash "${{ github.action_path }}/dosync.sh"
+
+    - name: 发布到 Releases(按标签循环)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        # 本步骤不 checkout,无 .git,gh 无法靠 git 推断仓库;显式指定目标仓库
+        GH_REPO: ${{ github.repository }}
+      run: CS=4 bash "${{ github.action_path }}/dosync.sh"

@@ -23,8 +23,9 @@ actions/
 ├── ziglang/        # Zig 编译器
 │   ├── action.yaml
 │   └── dosync.sh
-└── docker_desktop/ # Docker Desktop 安装包(脚本内联,未抽文件)
-    └── action.yaml
+└── docker_desktop/ # Docker Desktop 安装包(按日期打标签的每日构建)
+    ├── action.yaml
+    └── dosync.sh
 ```
 
 ## 🧩 各模块一览
@@ -36,13 +37,13 @@ actions/
 | `kubectl` | kubectl 客户端/服务端/节点 | <https://dl.k8s.io> | SHA512 | `gh` CLI(`dosync.sh` S4) |
 | `k3s` | K3s 主二进制 + 各架构离线镜像包 | <https://github.com/k3s-io/k3s/releases> | SHA256 | `gh` CLI(`dosync.sh` S4) |
 | `ziglang` | Zig 编译器各平台归档 | <https://ziglang.org/download> | SHA256 | `gh` CLI(`dosync.sh` S4) |
-| `docker_desktop` | Docker Desktop 安装包/脚本 | <https://desktop.docker.com> 等 | -- | `softprops/action-gh-release` |
+| `docker_desktop` | Docker Desktop 安装包/脚本 | <https://desktop.docker.com> 等 | --(`CS=3` 跳过) | `gh` CLI(`dosync.sh` S4) |
 
 ## 🔧 脚本组织约定
 
 各模块脚本按执行阶段拆分,存在两种组织方式:
 
-- **单脚本模式(`golang` / `helm` / `kubectl` / `k3s` / `ziglang`)**:目录下只有一个 `dosync.sh`,通过阶段参数(`CS`)调度:
+- **单脚本模式(`golang` / `helm` / `kubectl` / `k3s` / `ziglang` / `docker_desktop`)**:目录下只有一个 `dosync.sh`,通过阶段参数(`CS`)调度:
   | 调用参数 | 阶段职责 |
   | --- | --- |
   | `CS=1 bash dosync.sh` | 解析版本号,生成下载/校验清单(写入 `$RUNNER_TEMP/versions.txt` 与各版本 manifest) |
@@ -50,7 +51,7 @@ actions/
   | `CS=3 bash dosync.sh` | 用官方哈希(`sha256sum` / `sha512sum -c`)逐文件校验 |
   | `CS=4 bash dosync.sh` | 用 `gh` CLI 逐个版本 `gh release create` 发布(首个标 `--latest`,已存在先删后建) |
 
-- **内联模式(`docker_desktop`)**:无独立脚本文件,全部步骤写在 `action.yaml` 中.
+- **`docker_desktop` 说明**:为每日构建(按日期打标签),无官方哈希,故 `CS=3` 为空操作(跳过校验);其余阶段与单脚本模式一致.
 
 ## 🚀 如何在工具仓库中引用
 
